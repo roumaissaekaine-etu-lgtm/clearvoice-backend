@@ -1,3 +1,4 @@
+import os
 import httpx
 from fastapi import APIRouter, UploadFile, File, Header, HTTPException
 from fastapi.responses import StreamingResponse
@@ -8,7 +9,9 @@ import uuid
 
 router = APIRouter(prefix="/conversion", tags=["Conversion"])
 
-KAGGLE_CONVERSION_URL = "https://surrogate-jujitsu-unlovely.ngrok-free.dev"
+# Récupérer l'URL depuis les variables d'environnement
+KAGGLE_CONVERSION_URL = os.getenv("KAGGLE_CONVERSION_URL", "https://surrogate-jujitsu-unlovely.ngrok-free.dev")
+print(f"[DEBUG] KAGGLE_CONVERSION_URL = {KAGGLE_CONVERSION_URL}")
 
 
 @router.post("/convertir")
@@ -42,16 +45,31 @@ async def convertir(
                 f"Audio trop court après nettoyage ({duree:.1f}s). Minimum 1.5 secondes requis."
             )
 
+        # ============================================================
+        # DEBUG : Afficher les infos avant l'envoi à Kaggle
+        # ============================================================
+        print(f"[DEBUG] Envoi à Kaggle : {KAGGLE_CONVERSION_URL}/convert")
+        print(f"[DEBUG] Nom du fichier : {fichier.filename}")
+        print(f"[DEBUG] Taille audio : {len(audio_bytes_propre)} bytes")
+        print(f"[DEBUG] Durée : {duree} sec")
+
         # Envoyer l'audio propre à Kaggle
         async with httpx.AsyncClient(timeout=120.0) as client:
             reponse = await client.post(
                 f"{KAGGLE_CONVERSION_URL}/convert",
-                files={"file": (fichier.filename, audio_bytes_propre, "audio/wav")},  # ← CHANGÉ : "file" au lieu de "fichier"
+                files={"file": (fichier.filename, audio_bytes_propre, "audio/wav")},
                 headers={"ngrok-skip-browser-warning": "true"}
             )
-
-        if reponse.status_code != 200:
-            raise HTTPException(500, "Erreur lors de la conversion")
+            
+            # ============================================================
+            # DEBUG : Afficher la réponse de Kaggle
+            # ============================================================
+            print(f"[DEBUG] Status code Kaggle : {reponse.status_code}")
+            print(f"[DEBUG] Response headers : {reponse.headers}")
+            
+            if reponse.status_code != 200:
+                print(f"[DEBUG] Response body (erreur) : {reponse.text[:500]}")
+                raise HTTPException(500, f"Erreur Kaggle: {reponse.status_code}")
 
         audio_converti = reponse.content
         session_id = str(uuid.uuid4())
@@ -102,6 +120,7 @@ async def convertir(
     except HTTPException:
         raise
     except Exception as e:
+        print(f"[DEBUG] Exception générale : {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
