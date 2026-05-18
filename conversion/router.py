@@ -46,7 +46,7 @@ async def convertir(
         async with httpx.AsyncClient(timeout=120.0) as client:
             reponse = await client.post(
                 f"{KAGGLE_CONVERSION_URL}/convert",
-                files={"fichier": (fichier.filename, audio_bytes_propre, "audio/wav")},
+                files={"file": (fichier.filename, audio_bytes_propre, "audio/wav")},  # ← CHANGÉ : "file" au lieu de "fichier"
                 headers={"ngrok-skip-browser-warning": "true"}
             )
 
