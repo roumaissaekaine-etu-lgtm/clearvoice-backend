@@ -38,7 +38,7 @@ async def convertir(
         # Prétraitement
         audio_bytes_propre, duree = pretraiter_audio(audio_bytes_brut)
 
-        # Vérifier durée minimum pour knn-vc
+        # Vérifier durée minimum pour le modèle (ou la simulation)
         if duree < 1.5:
             raise HTTPException(
                 400,
@@ -46,37 +46,31 @@ async def convertir(
             )
 
         # ============================================================
-        # DEBUG : Afficher les infos avant l'envoi à Kaggle
+        # SIMULATION ×2 (pas d’appel à Kaggle)
         # ============================================================
-        print(f"[DEBUG] Envoi à Kaggle : {KAGGLE_CONVERSION_URL}/convert")
-        print(f"[DEBUG] Nom du fichier : {fichier.filename}")
-        print(f"[DEBUG] Taille audio : {len(audio_bytes_propre)} bytes")
-        print(f"[DEBUG] Durée : {duree} sec")
+        print("[INFO] Utilisation de la simulation ×2 (accélération audio)")
+        import librosa
+        import io
+        import soundfile as sf
 
-        # Envoyer l'audio propre à Kaggle
-        async with httpx.AsyncClient(timeout=120.0) as client:
-            reponse = await client.post(
-                f"{KAGGLE_CONVERSION_URL}/convert",
-                files={"file": (fichier.filename, audio_bytes_propre, "audio/wav")},
-                headers={"ngrok-skip-browser-warning": "true"}
-            )
-            
-            # ============================================================
-            # DEBUG : Afficher la réponse de Kaggle
-            # ============================================================
-            print(f"[DEBUG] Status code Kaggle : {reponse.status_code}")
-            print(f"[DEBUG] Response headers : {reponse.headers}")
-            
-            if reponse.status_code != 200:
-                print(f"[DEBUG] Response body (erreur) : {reponse.text[:500]}")
-                raise HTTPException(500, f"Erreur Kaggle: {reponse.status_code}")
+        # Charger l’audio prétraité
+        audio_np, sr = librosa.load(io.BytesIO(audio_bytes_propre), sr=16000)
 
-        audio_converti = reponse.content
+        # Accélération ×2
+        audio_accelere = librosa.effects.time_stretch(audio_np, rate=2.0)
+
+        # Reconvertir en bytes WAV
+        buffer = io.BytesIO()
+        sf.write(buffer, audio_accelere, 16000, format='WAV')
+        audio_converti = buffer.getvalue()
+        # ============================================================
+
         session_id = str(uuid.uuid4())
         url_original = ""
-        url_converti  = ""
+        url_converti = ""
 
         if user_id:
+            # Upload audio original
             chemin_original = f"{user_id}/original_{session_id}.wav"
             supabase.storage.from_("audio-originaux").upload(
                 chemin_original, audio_bytes_brut, {"content-type": "audio/wav"}
@@ -84,6 +78,7 @@ async def convertir(
             url_original = supabase.storage.from_("audio-originaux")\
                 .get_public_url(chemin_original)
 
+            # Upload audio converti (simulé)
             chemin_converti = f"{user_id}/converti_{session_id}.wav"
             supabase.storage.from_("audio-convertis").upload(
                 chemin_converti, audio_converti, {"content-type": "audio/wav"}
@@ -91,6 +86,7 @@ async def convertir(
             url_converti = supabase.storage.from_("audio-convertis")\
                 .get_public_url(chemin_converti)
 
+            # Sauvegarder la session dans Supabase
             supabase.table("conversion_sessions").insert({
                 "id":              session_id,
                 "user_id":         user_id,
@@ -99,12 +95,14 @@ async def convertir(
                 "duree_secondes":  duree
             }).execute()
 
+            # Ajouter dans l'historique
             supabase.table("historique").insert({
                 "user_id":      user_id,
                 "type_action":  "conversion",
                 "reference_id": session_id
             }).execute()
 
+        # Retourner l'audio converti
         return StreamingResponse(
             io.BytesIO(audio_converti),
             media_type="audio/wav",
@@ -120,9 +118,8 @@ async def convertir(
     except HTTPException:
         raise
     except Exception as e:
-        print(f"[DEBUG] Exception générale : {str(e)}")
+        print(f"[ERREUR] {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
-
 
 @router.get("/historique/{user_id}")
 def historique_conversion(user_id: str):
