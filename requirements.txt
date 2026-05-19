@@ -6,8 +6,3 @@ python-dotenv
 pydantic
 httpx
 edge-tts
-librosa
-noisereduce
-soundfile
-scipy
-numpy
