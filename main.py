@@ -10,6 +10,7 @@ from history.router import router as history_router
 import conversion.router as conv_mod
 import detection.router as det_mod
 
+
 app = FastAPI(
     title="ClearVoice API",
     version="1.0.0",
